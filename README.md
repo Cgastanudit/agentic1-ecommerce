@@ -138,17 +138,64 @@ Pruebas con pytest (exige al menos 13 de 15 aciertos):
 
 ---
 
-## 5. Conectar Telegram (pendiente — parte 5)
+## 5. Conectar Telegram (sin librerías de bot, solo httpx)
 
-El endpoint `POST /telegram` ya existe como placeholder (`{"ok": true}`). Cuando se implemente la parte 5:
+El endpoint `POST /telegram` ya está implementado. Sigue estos pasos **en orden**:
 
-1. Crea el bot con **BotFather** y obtén el `TELEGRAM_TOKEN`.
-2. Configura el webhook apuntando a `https://TU_PUBLIC_URL/telegram`.
-3. Telegram envía un `X-Telegram-Bot-Api-Secret-Token` en cada request; compáralo con `TELEGRAM_SECRET`.
-4. Las variables van en `.env` (nunca en el código):
-   - `TELEGRAM_TOKEN` — vacío hasta este paso.
-   - `TELEGRAM_SECRET` — el secreto que verifica cada webhook.
-   - `PUBLIC_URL` — la URL https pública (tu app de Heroku).
+### Paso 1 — Configurar variables en Heroku
+```bash
+heroku config:set TELEGRAM_TOKEN=TU_TOKEN_DE_BOTFATHER
+heroku config:set TELEGRAM_SECRET=cambia_este_secreto
+heroku config:set PUBLIC_URL=https://TU_APP.herokuapp.com
+```
+En local, agrega esas mismas variables a tu `.env` (nunca subas `.env` a GitHub).
+
+### Paso 2 — Commit y push a GitHub y a Heroku
+```powershell
+git add .
+git commit -m "conectar telegram webhook"
+git push origin main
+git push heroku main
+```
+
+### Paso 3 — Configurar el webhook de Telegram
+Desde la raíz del proyecto, con el entorno virtual activado:
+
+```powershell
+.venv\Scripts\python.exe scripts/set_webhook.py
+.venv\Scripts\python.exe scripts/webhook_info.py
+```
+
+`set_webhook.py` llama a `setWebhook` con `url = PUBLIC_URL + "/telegram"` y `secret_token = TELEGRAM_SECRET`.
+`webhook_info.py` llama a `getWebhookInfo` para confirmar que quedó bien y revisar si hay errores pendientes (`last_error_message`, `pending_update_count`).
+
+**Opcional para probar antes de desplegar** (local con túnel público):
+```bash
+cloudflared tunnel --url http://localhost:8000
+```
+Usa la URL `https://...` que te devuelve cloudflared como `PUBLIC_URL`.
+
+### Paso 4 — Probar con el bot
+Escribe al bot en Telegram los 6 mensajes del prompt 2:
+1. "¿tienen la polera azul en talla M?" → debe responder como **preventa**
+2. "mi pedido 4521 llegó roto" → debe responder como **postventa**
+3. "hola" → debe responder como **generica**
+4. "¿cuánto cuesta el envío a Valparaíso?" → debe responder como **preventa**
+5. "quiero devolver unas zapatillas" → debe responder como **postventa**
+6. "¿qué hora es en Tokio?" → debe responder como **generica**
+
+Mientras tanto, verifica en otra terminal que cada request llega y la ruta es correcta:
+```bash
+heroku logs --tail
+```
+Busca los logs del router con `ruta=` y `motivo=` para cada `chat_id`.
+
+### Paso 5 — Si el bot no responde, revisar
+1. **Webhook apuntando a `/telegram` con https**: `setWebhook` debe usar `https://TU_PUBLIC_URL/telegram` (no http).
+2. **Secreto igual en ambos lados**: `TELEGRAM_SECRET` en Heroku/.env debe coincidir con el `secret_token` enviado a `setWebhook` y con la cabecera `X-Telegram-Bot-Api-Secret-Token` que Telegram envía.
+3. **Token correcto**: `TELEGRAM_TOKEN` debe ser el token que te dio @BotFather.
+4. **Logs**: `heroku logs --tail` para ver errores de la API o de `sendMessage`.
+
 
 ---
 
