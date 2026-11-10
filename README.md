@@ -95,6 +95,51 @@ Respuesta esperada:
 
 Bruno: abre `bruno/`, define la variable de entorno `base_url` (`http://localhost:8000` local o tu URL de Heroku) y ejecuta `health`, `chat-preventa`, `chat-postventa` y `chat-generica`.
 
+Cuando llames a `/chat` desde Bruno, agrega la cabecera `X-API-Key` con el valor de tu `API_KEY`.
+
+---
+
+## 2.5. Clave de la API
+
+El endpoint `POST /chat` está protegido con una clave de API. Sin la cabecera `X-API-Key` correcta, responde `401 Unauthorized`. `/health` y `/telegram` siguen abiertos.
+
+### Generar una clave
+Usa cualquier string aleatorio y seguro. Ejemplo con Python:
+```powershell
+.venv\Scripts\python.exe -c "import secrets; print(secrets.token_hex(32))"
+```
+
+### En local (.env)
+Agrega la clave a tu `.env` (nunca subas este archivo):
+```
+API_KEY=tu_clave_secreta_aqui
+```
+Luego levanta la API normalmente:
+```powershell
+uvicorn api.app:app --reload --port 8000
+```
+
+### En Heroku (Config Vars)
+```bash
+heroku config:set API_KEY=tu_clave_secreta_aqui
+```
+
+### Probar desde /docs
+En `http://localhost:8000/docs`, el endpoint `POST /chat` muestra un candado. Haz clic en el candado, pega tu `API_KEY` en el campo `X-API-Key` y usa "Try it out".
+
+### Probar desde curl
+```bash
+curl -s -X POST http://localhost:8000/chat \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: tu_clave_secreta_aqui" \
+  -d '{"user_id":"u1","texto":"¿tienen la polera azul en talla M?"}' | python3 -m json.tool
+```
+
+Sin la cabecera `X-API-Key`, la respuesta será `401`:
+```json
+{"detail":"Clave de API inválida o faltante. Incluye la cabecera X-API-Key."}
+```
+
 ---
 
 ## 3. Correr las pruebas

@@ -1,13 +1,24 @@
 import logging
 import os
+import secrets
 import sys
 from contextlib import asynccontextmanager
 from typing import Any
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Request, Header
+from fastapi import (
+    Depends,
+    FastAPI,
+    HTTPException,
+    Request,
+    Security,
+    status,
+    Header,
+)
+from fastapi.security import APIKeyHeader
 from fastapi.responses import JSONResponse
+from fastapi.openapi.utils import get_openapi
 from pydantic import BaseModel, Field
 
 from src.router.graph import graph
@@ -16,6 +27,21 @@ load_dotenv()
 
 logging.basicConfig(level=logging.INFO, stream=sys.stdout, format="%(levelname)s: %(message)s")
 logger = logging.getLogger("ecommerce_router")
+
+API_KEY_NAME = "X-API-Key"
+api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
+
+
+async def verify_api_key(api_key: str = Security(api_key_header)):
+    """Valida la cabecera X-API-Key contra la variable de entorno API_KEY."""
+    expected = os.getenv("API_KEY")
+    if not expected or not secrets.compare_digest(api_key or "", expected):
+        logger.warning("Intento de acceso a /chat sin clave de API válida")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Clave de API inválida o faltante. Incluye la cabecera X-API-Key.",
+        )
+    return api_key
 
 
 class ChatRequest(BaseModel):
@@ -60,6 +86,32 @@ async def lifespan(app: FastAPI):
     yield
 
 
+def custom_openapi():
+    """Añade el esquema de seguridad APIKeyHeader para que /docs muestre el candado."""
+    if app.openapi_schema:
+        return app.openapi_schema
+    openapi_schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+    )
+    openapi_schema["components"]["securitySchemes"] = {
+        "X-API-Key": {
+            "type": "apiKey",
+            "in": "header",
+            "name": "X-API-Key",
+            "description": "Clave de API para acceder a /chat",
+        }
+    }
+    # Aplicar el esquema de seguridad a la operación POST /chat
+    chat_op = openapi_schema.get("paths", {}).get("/chat", {}).get("post")
+    if chat_op:
+        chat_op["security"] = [{"X-API-Key": []}]
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+
 app = FastAPI(
     title="Ecommerce Router API",
     version="1.0.0",
@@ -76,6 +128,7 @@ app = FastAPI(
     license_info={"name": "MIT"},
     lifespan=lifespan,
 )
+app.openapi = custom_openapi
 
 
 @app.get(
@@ -99,11 +152,15 @@ def health() -> dict[str, Any]:
             "description": "Mensaje enrutado correctamente.",
             "model": ChatResponse,
         },
+        401: {"description": "Clave de API inválida o faltante (cabecera X-API-Key)."},
         422: {"description": "Error de validación del cuerpo (falta el campo texto)."},
         502: {"description": "Error al consultar el modelo de lenguaje."},
     },
 )
-async def chat(req: ChatRequest) -> ChatResponse:
+async def chat(
+    req: ChatRequest,
+    _api_key: str = Depends(verify_api_key),
+) -> ChatResponse:
     try:
         estado_inicial = {
             "messages": [("user", req.texto)],
